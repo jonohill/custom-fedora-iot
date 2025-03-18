@@ -9,7 +9,9 @@ ARG IMAGE_TAG=43@sha256:df0f71226e221af415d144d4666c818c70eeed3ef516e00a2b23a152
 FROM ${IMAGE_BASE}:${IMAGE_TAG}
 
 # dnf needs privileged to succeed, bug?
-RUN --security=insecure dnf install -y tailscale
+RUN --security=insecure dnf install -y \
+    ncurses \
+    tailscale
 
 COPY --chown=root:root root/etc /etc
 
