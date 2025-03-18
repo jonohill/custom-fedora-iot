@@ -1,0 +1,232 @@
+---
+name: Build Custom Image
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**/README.md'
+  workflow_dispatch:
+
+env:
+  IMAGE_REGISTRY: ghcr.io/${{ github.repository_owner }}
+  IMAGE_NAME: ${{ github.event.repository.name }}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.run_id }}-${{ inputs.brand_name}}-${{ inputs.stream_name }}
+  cancel-in-progress: true
+
+jobs:
+
+  get_versions:
+    name: Get Fedora versions
+    runs-on: ubuntu-24.04
+
+    outputs:
+      images: ${{ steps.get_versions.outputs.images }}
+      manifests: ${{ steps.get_versions.outputs.manifests }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Get Fedora versions
+        id: get_versions
+        run: |
+          output="$(./get_build_matrix.py ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }} | jq -c)"
+          images=$(echo "$output" | jq -c '.images')
+          manifests=$(echo "$output" | jq -c '.manifests')
+          echo "images=$images" >> $GITHUB_OUTPUT
+          echo "manifests=$manifests" >> $GITHUB_OUTPUT
+
+  build_images:
+    name: Build images
+    runs-on: ${{ matrix.runner }}
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    needs: get_versions
+
+    strategy:
+      matrix: 
+        include: ${{ fromJson(needs.get_versions.outputs.images) }}
+
+    steps:
+        # These deps are missing from arm runners
+      - name: Add deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman qemu-utils
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # This is optional, but if you see that your builds are way too big for the runners, you can enable this by uncommenting the following lines:
+      # - name: Maximize build space
+      #   uses: ublue-os/remove-unwanted-software@517622d6452028f266b7ba4cc9a123b5f58a6b53 # v7
+      #   with:
+      #     remove-codeql: true
+      
+      - name: Login to GitHub Container Registry
+        if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build container image
+        uses: docker/build-push-action@v6
+        with:
+          push: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          tags: ${{ matrix.tags }}
+          allow: security.insecure
+          build-args: |
+            IMAGE_BASE=${{ matrix.image_base }}
+            IMAGE_TAG=${{ matrix.image_tag }}
+
+      - name: Build vm image
+        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        run: |
+          set -ex
+          img="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version_tag }}"
+          vmdk="${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk"
+          qemu-img create -f vmdk "$vmdk" 50G
+          sudo modprobe nbd
+          sudo qemu-nbd --connect=/dev/nbd0 "$vmdk"
+          sudo podman run \
+            --privileged \
+            --pid=host \
+            -v /var/lib/containers:/var/lib/containers \
+            -v /dev:/dev \
+            --security-opt label=type:unconfined_t \
+            "$img" \
+            bootc install to-disk \
+              --filesystem btrfs \
+              /dev/nbd0
+          sudo qemu-nbd --disconnect /dev/nbd0
+
+      - name: Upload vm image
+        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
+          path: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
+
+      # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
+      # This does not make your image faster to download, just provides better resumability and fixes a few errors.
+      # Documentation for Rechunk is provided on their github repository at https://github.com/hhd-dev/rechunk
+      # You can enable it by uncommenting the following lines:
+      # - name: Run Rechunker
+      #   id: rechunk
+      #   uses: hhd-dev/rechunk@f153348d8100c1f504dec435460a0d7baf11a9d2 # v1.1.1
+      #   with:
+      #     rechunk: 'ghcr.io/hhd-dev/rechunk:v1.0.1'
+      #     ref: "localhost/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
+      #     prev-ref: "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}"
+      #     skip_compression: true
+      #     version: ${{ env.CENTOS_VERSION }}
+      #     labels: ${{ steps.metadata.outputs.labels }} # Rechunk strips out all the labels during build, this needs to be reapplied here with newline separator
+
+      # This is necessary so that the podman socket can find the rechunked image on its storage
+      # - name: Load in podman and tag
+      #   run: |
+      #     IMAGE=$(podman pull ${{ steps.rechunk.outputs.ref }})
+      #     sudo rm -rf ${{ steps.rechunk.outputs.output }}
+      #     for tag in ${{ steps.metadata.outputs.tags }}; do
+      #       podman tag $IMAGE ${{ env.IMAGE_NAME }}:$tag
+      #     done
+
+      # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
+      # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
+      # - name: Login to GitHub Container Registry
+      #   uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3
+      #   if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      #   with:
+      #     registry: ghcr.io
+      #     username: ${{ github.actor }}
+      #     password: ${{ secrets.GITHUB_TOKEN }}
+
+      # - name: Push To GHCR
+      #   uses: redhat-actions/push-to-registry@5ed88d269cf581ea9ef6dd6806d01562096bee9c # v2
+      #   if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      #   id: push
+      #   env:
+      #     REGISTRY_USER: ${{ github.actor }}
+      #     REGISTRY_PASSWORD: ${{ github.token }}
+      #   with:
+      #     registry: ${{ env.IMAGE_REGISTRY }}
+      #     image: ${{ env.IMAGE_NAME }}
+      #     tags: ${{ steps.metadata.outputs.tags }}
+      #     username: ${{ env.REGISTRY_USER }}
+      #     password: ${{ env.REGISTRY_PASSWORD }}
+
+      # This section is optional and only needs to be enabled if you plan on distributing
+      # your project for others to consume. You will need to create a public and private key
+      # using Cosign and save the private key as a repository secret in Github for this workflow
+      # to consume. For more details, review the image signing section of the README.
+      # - name: Install Cosign
+      #   uses: sigstore/cosign-installer@c56c2d3e59e4281cc41dea2217323ba5694b171e # v3.8.0
+      #   if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+
+      # - name: Sign container image
+      #   if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+      #   run: |
+      #     IMAGE_FULL="${{ steps.registry_case.outputs.lowercase }}/${{ steps.image_case.outputs.lowercase }}"
+      #     for tag in ${{ steps.metadata.outputs.tags }}; do
+      #       cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE_FULL:$tag
+      #     done
+      #   env:
+      #     TAGS: ${{ steps.push.outputs.digest }}
+      #     COSIGN_EXPERIMENTAL: false
+      #     COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
+
+  build_manifests:
+    name: Build combined manifests
+    runs-on: ubuntu-24.04
+
+    if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    needs:
+      - get_versions
+      - build_images
+
+    steps:
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifests
+        env:
+          MANIFESTS: ${{ needs.get_versions.outputs.manifests }}
+        run: |
+          echo "$MANIFESTS" | jq -c '.[]' | while read -r item; do
+            echo "item=$item"
+            tag=$(echo "$item" | jq -r '.tag')
+            echo "tag=$tag"
+            images=$(echo "$item" | jq -r '.images')
+            echo "images=$images"
+            echo docker buildx imagetools create -t "$tag" $images
+            docker buildx imagetools create -t "$tag" $images
+          done
