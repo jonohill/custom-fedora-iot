@@ -94,33 +94,33 @@ jobs:
             IMAGE_BASE=${{ matrix.image_base }}
             IMAGE_TAG=${{ matrix.image_tag }}
 
-      - name: Build vm image
-        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        run: |
-          set -ex
-          img="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version_tag }}"
-          vmdk="${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk"
-          qemu-img create -f vmdk "$vmdk" 50G
-          sudo modprobe nbd
-          sudo qemu-nbd --connect=/dev/nbd0 "$vmdk"
-          sudo podman run \
-            --privileged \
-            --pid=host \
-            -v /var/lib/containers:/var/lib/containers \
-            -v /dev:/dev \
-            --security-opt label=type:unconfined_t \
-            "$img" \
-            bootc install to-disk \
-              --filesystem btrfs \
-              /dev/nbd0
-          sudo qemu-nbd --disconnect /dev/nbd0
+      # - name: Build vm image
+      #   if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      #   run: |
+      #     set -ex
+      #     img="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version_tag }}"
+      #     vmdk="${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk"
+      #     qemu-img create -f vmdk "$vmdk" 50G
+      #     sudo modprobe nbd
+      #     sudo qemu-nbd --connect=/dev/nbd0 "$vmdk"
+      #     sudo podman run \
+      #       --privileged \
+      #       --pid=host \
+      #       -v /var/lib/containers:/var/lib/containers \
+      #       -v /dev:/dev \
+      #       --security-opt label=type:unconfined_t \
+      #       "$img" \
+      #       bootc install to-disk \
+      #         --filesystem btrfs \
+      #         /dev/nbd0
+      #     sudo qemu-nbd --disconnect /dev/nbd0
 
-      - name: Upload vm image
-        if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
-          path: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
+      # - name: Upload vm image
+      #   if: ${{ github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
+      #     path: ${{ env.IMAGE_NAME }}-${{ matrix.version_tag }}.vmdk
 
       # Rechunk is a script that we use on Universal Blue to make sure there isnt a single huge layer when your image gets published.
       # This does not make your image faster to download, just provides better resumability and fixes a few errors.
