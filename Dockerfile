@@ -13,8 +13,10 @@ RUN --security=insecure dnf install -y \
     ncurses \
     tailscale
 
+RUN systemctl --root=/ enable tailscaled
+
 COPY --chown=root:root root/etc /etc
 
-RUN systemctl --root=/ enable rpm-ostreed-automatic.timer
+RUN systemctl --root=/ enable rpm-ostreed-automatic.timer && \
 
 RUN ostree container commit
