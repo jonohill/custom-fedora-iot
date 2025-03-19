@@ -19,4 +19,4 @@ COPY --chown=root:root root/etc /etc
 
 RUN systemctl --root=/ enable rpm-ostreed-automatic.timer
 
-RUN ostree container commit
+RUN bootc container lint
