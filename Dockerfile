@@ -17,7 +17,7 @@ RUN --security=insecure dnf install -y \
 RUN systemctl --root=/ enable tailscaled && \
     systemctl --root=/ enable cockpit.socket
 
-RUN firewall-cmd --add-service=cockpit --permanent
+# RUN firewall-cmd --add-service=cockpit --permanent
 
 COPY --chown=root:root root/etc /etc
 
