@@ -10,10 +10,14 @@ FROM ${IMAGE_BASE}:${IMAGE_TAG}
 
 # dnf needs privileged to succeed, bug?
 RUN --security=insecure dnf install -y \
+    cockpit \
     ncurses \
     tailscale
 
-RUN systemctl --root=/ enable tailscaled
+RUN systemctl --root=/ enable tailscaled && \
+    systemctl --root=/ enable cockpit.socket
+
+RUN firewall-cmd --add-service=cockpit --permanent
 
 COPY --chown=root:root root/etc /etc
 
