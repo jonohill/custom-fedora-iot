@@ -11,6 +11,7 @@ FROM ${IMAGE_BASE}:${IMAGE_TAG}
 # dnf needs privileged to succeed, bug?
 RUN --security=insecure dnf install -y \
     cockpit \
+    htop \
     ncurses \
     tailscale
 
