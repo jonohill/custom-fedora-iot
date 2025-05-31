@@ -4,7 +4,7 @@ ARG IMAGE_BASE=quay.io/fedora/fedora-iot
 
 # This points to the very latest (usually prerelease)
 # It's mainly here to cause rebuilds when renovate updates it
-ARG IMAGE_TAG=43@sha256:f0e39fca215e23c682f24d108c3427745c3583cc654ebe5ebca21d63d0b6f5ba
+ARG IMAGE_TAG=43@sha256:93f6e19839dbc92ef388ec47b3908c6a5732488d83eaa55232e912c45af33d5d
 
 FROM ${IMAGE_BASE}:${IMAGE_TAG}
 
