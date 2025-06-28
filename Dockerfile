@@ -16,13 +16,14 @@ tailscale
 
 ARG WITH_RPI_KERNEL=true
 COPY dwrobel-kernel-rpi.repo /etc/yum.repos.d/
-RUN [ "${WITH_RPI_KERNEL}" = "true" ] && \
-    dnf install -y grubby && \
-    mkdir -p /boot/dtb && \
-    dnf remove -y kernel kernel-core kernel-modules-core && \
-    dnf install -y --repo="copr:copr.fedorainfracloud.org:dwrobel:kernel-rpi" kernel kernel-core && \
-    find /usr/lib/modules -name vmlinux -execdir mv {} vmlinuz \; && \
-    rm -rf /boot/*
+RUN if [ "${WITH_RPI_KERNEL}" = "true" ]; then \
+        dnf install -y grubby && \
+        mkdir -p /boot/dtb && \
+        dnf remove -y kernel kernel-core kernel-modules-core && \
+        dnf install -y --repo="copr:copr.fedorainfracloud.org:dwrobel:kernel-rpi" kernel kernel-core && \
+        find /usr/lib/modules -name vmlinux -execdir mv {} vmlinuz \; && \
+        rm -rf /boot/*; \
+    fi
 
 RUN systemctl --root=/ enable tailscaled && \
     systemctl --root=/ enable cockpit.socket
