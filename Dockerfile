@@ -8,15 +8,16 @@ ARG IMAGE_TAG=43@sha256:6c4e7fc4c5a9256997df1182ce142b905811294f3497ccc192e2a7e0
 
 FROM ${IMAGE_BASE}:${IMAGE_TAG}
 
-COPY dwrobel-kernel-rpi.repo /etc/yum.repos.d/
-
 RUN dnf install -y \
-    cockpit \
-    htop \
-    ncurses \
-    tailscale
+cockpit \
+htop \
+ncurses \
+tailscale
 
-RUN dnf install -y grubby && \
+ARG WITH_RPI_KERNEL=true
+COPY dwrobel-kernel-rpi.repo /etc/yum.repos.d/
+RUN [ "${WITH_RPI_KERNEL}" = "true" ] && \
+    dnf install -y grubby && \
     mkdir -p /boot/dtb && \
     dnf remove -y kernel kernel-core kernel-modules-core && \
     dnf install -y --repo="copr:copr.fedorainfracloud.org:dwrobel:kernel-rpi" kernel kernel-core && \
