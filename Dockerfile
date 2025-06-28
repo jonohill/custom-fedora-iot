@@ -8,12 +8,20 @@ ARG IMAGE_TAG=43@sha256:6c4e7fc4c5a9256997df1182ce142b905811294f3497ccc192e2a7e0
 
 FROM ${IMAGE_BASE}:${IMAGE_TAG}
 
-# dnf needs privileged to succeed, bug?
-RUN --security=insecure dnf install -y \
+COPY dwrobel-kernel-rpi.repo /etc/yum.repos.d/
+
+RUN dnf install -y \
     cockpit \
     htop \
     ncurses \
     tailscale
+
+RUN dnf install -y grubby && \
+    mkdir -p /boot/dtb && \
+    dnf remove -y kernel kernel-core kernel-modules-core && \
+    dnf install -y --repo="copr:copr.fedorainfracloud.org:dwrobel:kernel-rpi" kernel kernel-core && \
+    find /usr/lib/modules -name vmlinux -execdir mv {} vmlinuz \; && \
+    rm -rf /boot/*
 
 RUN systemctl --root=/ enable tailscaled && \
     systemctl --root=/ enable cockpit.socket
