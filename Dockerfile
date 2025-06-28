@@ -15,14 +15,19 @@ ncurses \
 tailscale
 
 ARG WITH_RPI_KERNEL=true
+ARG TARGETPLATFORM
 COPY dwrobel-kernel-rpi.repo /etc/yum.repos.d/
-RUN if [ "${WITH_RPI_KERNEL}" = "true" ]; then \
+RUN if [ "${WITH_RPI_KERNEL}" = "true" ] && [ "${TARGETPLATFORM}" = "linux/arm64" ]; then \
+        echo "Installing RPi kernel for arm64 platform" && \
         dnf install -y grubby && \
         mkdir -p /boot/dtb && \
         dnf remove -y kernel kernel-core kernel-modules-core && \
         dnf install -y --repo="copr:copr.fedorainfracloud.org:dwrobel:kernel-rpi" kernel kernel-core && \
         find /usr/lib/modules -name vmlinux -execdir mv {} vmlinuz \; && \
         rm -rf /boot/*; \
+    else \
+        echo "Skipping RPi kernel installation (WITH_RPI_KERNEL=${WITH_RPI_KERNEL}, TARGETPLATFORM=${TARGETPLATFORM})" && \
+        rm -f /etc/yum.repos.d/dwrobel-kernel-rpi.repo; \
     fi
 
 RUN systemctl --root=/ enable tailscaled && \
